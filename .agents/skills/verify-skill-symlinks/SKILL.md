@@ -50,11 +50,27 @@ All must pass. There is no scored rubric.
    comm -23 <(ls -1 "<repo-root>/.agents/skills" | sort) \
             <(ls -1 "<publish-dir>" | sort)      # any line = missing in that dir
    ```
-   For the workspace-root dir, compare against the basenames of its links that
-   point into this repo's `.agents/skills`.
+   A name present in the listing is not enough; check 5 decides where it points.
+5. **Exact target**: every skill lives canonically in `<repo-root>/.agents/skills`.
+   In each publish dir, every link named after a canonical skill must resolve to
+   exactly `<repo-root>/.agents/skills/<name>`:
+   ```bash
+   [ "$(realpath -m "<publish-dir>/<name>")" = "<repo-root>/.agents/skills/<name>" ]
+   ```
+   A link that resolves into another repository, or under `<workspace-root>/.agents`,
+   fails even when a `SKILL.md` exists there. Report a link whose name matches no
+   canonical skill.
 
-Links in `<workspace-root>/.cursor/skills` that point into a *different* repo are
-not failures; skip them rather than flag them.
+For each failing workspace link, report the correct target: the relative path from
+`<workspace-root>/.cursor/skills` to `<repo-root>/.agents/skills/<name>`:
+
+```bash
+python3 -c 'import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))' "<repo-root>/.agents/skills/<name>" "<workspace-root>/.cursor/skills"
+```
+
+Repoint it with `ln -sfn <target> <link>` only when the user asks for the fix.
+Then rerun checks 1 to 5 on that link and confirm `<link>/SKILL.md` matches the
+canonical file byte for byte (`cmp`).
 
 ## Trust the detector before trusting a pass
 
@@ -68,13 +84,20 @@ find "<publish-dir>" -maxdepth 1 -xtype l -name __faulttest__ -print  # must pri
 rm -f "<publish-dir>/__faulttest__"
 ```
 
-If the known-bad link is not flagged, stop and report the check as unverified.
-Always delete the temporary link afterward and leave the tree exactly as found.
+The exact-target check needs its own known-bad case. In a temporary directory, create
+`<temp>/.cursor/skills/<name>` → `../../.agents/skills/<name>`. It resolves under
+`<temp>/.agents`, so check 5 must fail on it. Delete the temporary directory
+afterward.
+
+If either known-bad link is not flagged, stop and report that check as unverified.
+Always delete the temporary links afterward and leave the tree exactly as found.
 
 ## Report
 
 State `<repo-root>`, `<workspace-root>`, whether the workspace root is a git repo,
 and for each required publish dir: broken-link count, resolve/frontmatter pass
-count over total, and any parity gaps. Note that discovery/wiring was verified,
+count over total, exact-target pass count over total, any parity gaps, and each
+failing link with its current text and its correct target. Note that discovery/wiring was verified,
 not each skill's runtime behavior. A check that did not run is unverified. Make no
-changes to the tree (the fault-test link is created and removed).
+changes to the tree except a repoint the user asked for (the fault-test links are
+created and removed).
